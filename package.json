@@ -1,6 +1,6 @@
 {
   "name": "deepseek-search-fetch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "DeepSeek Search & Fetch API for OpenCode V2: native websearch provider plus webfetch integration with smart fallback",
   "type": "module",
   "exports": {
