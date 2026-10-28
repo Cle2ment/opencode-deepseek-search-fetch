@@ -46,7 +46,7 @@ jobs:
       # unaffected. Re-enable by removing NPM_CONFIG_PROVENANCE and adding
       # --provenance back once the registry/sigstore issue is resolved.
       - name: Publish to npm
-        run: npm stage publish --access public
+        run: npm publish --access public
         env:
           NPM_CONFIG_PROVENANCE: "false"
 
