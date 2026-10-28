@@ -98,7 +98,7 @@ The package ships TypeScript source directly; OpenCode loads it with Bun, so the
 ## Release
 
 1. Bump `version` in `package.json` and commit.
-2. Tag the release: `git tag v1.0.1 && git push origin main --tags`.
+2. Tag the release: `git tag v1.0.1 && git push origin master --tags`.
 3. The release workflow verifies the tag matches the package version, runs all checks, and
    publishes to npm with provenance.
 
@@ -107,4 +107,5 @@ Repository secrets: `NPM_TOKEN` (npm automation token). Optional: set the reposi
 
 ## License
 
-MIT
+[GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). Modified versions offered
+as a network service must also make their source available.

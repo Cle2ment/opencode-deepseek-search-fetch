@@ -22,7 +22,7 @@
     "websearch",
     "webfetch"
   ],
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Cle2ment/opencode-deepseek-search-fetch.git"
