@@ -97,13 +97,33 @@ The package ships TypeScript source directly; OpenCode loads it with Bun, so the
 
 ## Release
 
+Releases use [npm trusted publishing (OIDC)](https://docs.npmjs.com/trusted-publishers) from
+GitHub Actions — no long-lived npm tokens, provenance generated automatically.
+
+**One-time setup:**
+
+1. Publish the first version locally so the package exists (trusted publishers are configured on
+   an existing package): `npm login` (with 2FA), then `npm publish --access public`.
+2. On npmjs.com, open the package **Settings → Trusted Publisher**, choose **GitHub Actions**, and set:
+   - Organization or user: `Cle2ment`
+   - Repository: `opencode-deepseek-search-fetch`
+   - Workflow filename: `release.yml`
+   - Allowed actions: also allow **`npm publish`** (new configurations default to stage-only)
+3. Complete the first OIDC publish **within 2 days** of creating the configuration, or it expires.
+
+**Cutting a release:**
+
 1. Bump `version` in `package.json` and commit.
 2. Tag the release: `git tag v1.0.1 && git push origin master --tags`.
 3. The release workflow verifies the tag matches the package version, runs all checks, and
    publishes to npm with provenance.
 
-Repository secrets: `NPM_TOKEN` (npm automation token). Optional: set the repository variable
-`DEEPSEEK_SMOKE_TEST=true` and secret `DEEPSEEK_API_KEY` to run a real-API smoke test after publish.
+Optional hardening: after the first trusted publish succeeds, set the package's
+**Settings → Publishing access → "Require two-factor authentication and disallow tokens"** so only
+the trusted workflow (or an interactive 2FA session) can publish.
+
+Optional smoke test: set the repository variable `DEEPSEEK_SMOKE_TEST=true` and secret
+`DEEPSEEK_API_KEY` to run a real-API smoke test after each publish.
 
 ## License
 

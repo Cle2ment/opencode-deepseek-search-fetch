@@ -16,9 +16,9 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
@@ -36,10 +36,12 @@ jobs:
             exit 1
           fi
 
+      # npm trusted publishing (OIDC): no long-lived token required.
+      # Configure the trusted publisher on the package's npmjs.com settings:
+      # GitHub Actions -> Cle2ment / opencode-deepseek-search-fetch / release.yml
+      # with "npm publish" allowed. Provenance is generated automatically.
       - name: Publish to npm
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   smoke:
     # Optional real-API smoke test; runs only when DEEPSEEK_API_KEY is configured.
