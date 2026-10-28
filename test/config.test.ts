@@ -10,7 +10,9 @@ describe("resolveConfig", () => {
       count: 10,
       overrideWebfetch: true,
       setDefault: true,
-      fetchStrategy: "native-first",
+      fetchStrategy: "auto",
+      nativeOnlyDomains: [],
+      deepseekOnlyDomains: [],
     })
   })
 
@@ -50,11 +52,21 @@ describe("resolveConfig", () => {
   })
 
   test("fetchStrategy accepts known values and rejects others", () => {
-    expect(resolveConfig({}).fetchStrategy).toBe("native-first")
+    expect(resolveConfig({}).fetchStrategy).toBe("auto")
+    expect(resolveConfig({ fetchStrategy: "auto" }).fetchStrategy).toBe("auto")
     expect(resolveConfig({ fetchStrategy: "deepseek-first" }).fetchStrategy).toBe("deepseek-first")
     expect(resolveConfig({ fetchStrategy: "native-first" }).fetchStrategy).toBe("native-first")
-    expect(resolveConfig({ fetchStrategy: "auto" }).fetchStrategy).toBe("native-first")
-    expect(resolveConfig({ fetchStrategy: 42 }).fetchStrategy).toBe("native-first")
+    expect(resolveConfig({ fetchStrategy: "bogus" }).fetchStrategy).toBe("auto")
+    expect(resolveConfig({ fetchStrategy: 42 }).fetchStrategy).toBe("auto")
+  })
+
+  test("domain lists are normalized", () => {
+    const config = resolveConfig({
+      nativeOnlyDomains: ["Example.COM", " intranet.local ", "", 42],
+      deepseekOnlyDomains: "not-an-array",
+    })
+    expect(config.nativeOnlyDomains).toEqual(["example.com", "intranet.local"])
+    expect(config.deepseekOnlyDomains).toEqual([])
   })
 })
 

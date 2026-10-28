@@ -11,13 +11,18 @@ export interface PluginConfig {
   readonly setDefault: boolean
   /**
    * Routing strategy for webfetch:
+   * - auto: deterministic gates plus per-domain learning decide the channel order.
    * - native-first: try the built-in fetch, fall back to DeepSeek on failure or poor content.
    * - deepseek-first: try DeepSeek, fall back to the built-in fetch on failure.
    */
   readonly fetchStrategy: FetchStrategy
+  /** Hostnames (or parent domains) that must always use the built-in fetch. */
+  readonly nativeOnlyDomains: readonly string[]
+  /** Hostnames (or parent domains) that should prefer the DeepSeek Fetch API. */
+  readonly deepseekOnlyDomains: readonly string[]
 }
 
-export type FetchStrategy = "native-first" | "deepseek-first"
+export type FetchStrategy = "auto" | "native-first" | "deepseek-first"
 
 export const DEFAULT_BASE_URL = "https://api.deepseek.com/v1/tools"
 export const DEFAULT_API_KEY_ENV = "DEEPSEEK_API_KEY"
@@ -51,9 +56,9 @@ export function resolveConfig(options: Record<string, unknown>): PluginConfig {
 
   const rawStrategy = options.fetchStrategy
   const fetchStrategy: FetchStrategy =
-    rawStrategy === "deepseek-first" || rawStrategy === "native-first"
+    rawStrategy === "auto" || rawStrategy === "deepseek-first" || rawStrategy === "native-first"
       ? rawStrategy
-      : "native-first"
+      : "auto"
 
   return {
     apiKeyEnv: stringOption(options, "apiKeyEnv", DEFAULT_API_KEY_ENV),
@@ -62,7 +67,16 @@ export function resolveConfig(options: Record<string, unknown>): PluginConfig {
     overrideWebfetch: booleanOption(options, "overrideWebfetch", true),
     setDefault: booleanOption(options, "setDefault", true),
     fetchStrategy,
+    nativeOnlyDomains: domainListOption(options.nativeOnlyDomains),
+    deepseekOnlyDomains: domainListOption(options.deepseekOnlyDomains),
   }
+}
+
+function domainListOption(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "")
+    .map((entry) => entry.trim().toLowerCase())
 }
 
 /** Resolve the API key lazily so a key exported after startup still works. */
