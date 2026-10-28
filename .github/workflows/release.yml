@@ -40,14 +40,6 @@ jobs:
             exit 1
           fi
 
-      - name: Debug OIDC environment
-        run: |
-          npm --version
-          if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then echo "OIDC request URL: present"; else echo "OIDC request URL: MISSING"; fi
-          if [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then echo "OIDC request token: present"; else echo "OIDC request token: MISSING"; fi
-          echo "--- ~/.npmrc ---"
-          cat ~/.npmrc 2>/dev/null || echo "(none)"
-
       # npm trusted publishing (OIDC) with direct publish: tags release
       # automatically, no long-lived token and no manual approval.
       # Trusted publisher config on npmjs.com: GitHub Actions ->
