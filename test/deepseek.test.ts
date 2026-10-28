@@ -10,7 +10,7 @@ let calls: FetchCall[]
 
 function stubFetch(handler: (url: string, init: RequestInit) => Response | Promise<Response>) {
   calls = []
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = (async (input: Request | string | URL, init?: RequestInit) => {
     const url = String(input)
     const request = init ?? {}
     calls.push({ url, init: request })
@@ -39,7 +39,8 @@ describe("search", () => {
 
     expect(results).toEqual([])
     expect(calls).toHaveLength(1)
-    const call = calls[0]!
+    const [call] = calls
+    if (!call) throw new Error("expected exactly one fetch call")
     expect(call.url).toBe("https://api.deepseek.com/v1/tools/search")
     expect(call.init.method).toBe("POST")
     const headers = call.init.headers as Record<string, string>

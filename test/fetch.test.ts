@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { resolveConfig } from "../src/config"
-import { createDeepSeekClient, MissingApiKeyError } from "../src/deepseek"
 import type { DeepSeekClient, DeepSeekFetchResult } from "../src/deepseek"
+import { createDeepSeekClient, MissingApiKeyError } from "../src/deepseek"
 import type { WebfetchInput } from "../src/fetch"
 import { createWebfetchExecutor, isProbablyImageUrl, stripMarkdown } from "../src/fetch"
 

@@ -56,26 +56,26 @@ Pass options with the object form in `opencode.jsonc`:
 }
 ```
 
-| Option | Default | Description |
-| --- | --- | --- |
-| `apiKeyEnv` | `"DEEPSEEK_API_KEY"` | Environment variable holding the API key. A literal key option is deliberately not offered so keys never end up in config files. |
-| `baseURL` | `"https://api.deepseek.com/v1/tools"` | API base including any path prefix, without `/search` or `/fetch`. Useful for proxies or self-hosted deployments. |
-| `count` | `10` | Results requested per search (1–50). |
-| `overrideWebfetch` | `true` | Replace the built-in `webfetch` tool with the DeepSeek Fetch API. |
-| `setDefault` | `true` | Select `deepseek` as the default websearch provider **only when** no provider is configured and an API key is present. Never overrides an explicit choice. |
+| Option             | Default                               | Description                                                                                                                                                |
+| ------------------ | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apiKeyEnv`        | `"DEEPSEEK_API_KEY"`                  | Environment variable holding the API key. A literal key option is deliberately not offered so keys never end up in config files.                           |
+| `baseURL`          | `"https://api.deepseek.com/v1/tools"` | API base including any path prefix, without `/search` or `/fetch`. Useful for proxies or self-hosted deployments.                                          |
+| `count`            | `10`                                  | Results requested per search (1–50).                                                                                                                       |
+| `overrideWebfetch` | `true`                                | Replace the built-in `webfetch` tool with the DeepSeek Fetch API.                                                                                          |
+| `setDefault`       | `true`                                | Select `deepseek` as the default websearch provider **only when** no provider is configured and an API key is present. Never overrides an explicit choice. |
 
 ## How webfetch fallback works
 
 The override keeps the native input schema (`url`, `format`, `timeout`) and the `webfetch`
 permission flow. Requests are routed as follows:
 
-| Request | Served by |
-| --- | --- |
+| Request                        | Served by                                              |
+| ------------------------------ | ------------------------------------------------------ |
 | `format: "markdown"` (default) | DeepSeek Fetch API (page title prepended as a heading) |
-| `format: "text"` | DeepSeek Fetch API, markdown stripped to plain text |
-| `format: "html"` | Built-in webfetch (DeepSeek only returns markdown) |
-| Image URLs (`.png`, `.jpg`, …) | Built-in webfetch (native image attachment handling) |
-| No API key configured | Built-in webfetch — the native tool never breaks |
+| `format: "text"`               | DeepSeek Fetch API, markdown stripped to plain text    |
+| `format: "html"`               | Built-in webfetch (DeepSeek only returns markdown)     |
+| Image URLs (`.png`, `.jpg`, …) | Built-in webfetch (native image attachment handling)   |
+| No API key configured          | Built-in webfetch — the native tool never breaks       |
 
 Errors mirror DeepSeek's semantics: `401/403` produce credential guidance, `429` is surfaced as a
 rate limit (Search 100 QPS / Fetch 25 QPS per account), and Fetch API failures are reported as
