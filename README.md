@@ -62,16 +62,16 @@ Pass options with the object form in `opencode.jsonc`:
 }
 ```
 
-| Option             | Default                               | Description                                                                                                                                                       |
-| ------------------ | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apiKeyEnv`        | `"DEEPSEEK_API_KEY"`                  | Environment variable holding the API key. A literal key option is deliberately not offered so keys never end up in config files.                                  |
-| `baseURL`          | `"https://api.deepseek.com/v1/tools"` | API base including any path prefix, without `/search` or `/fetch`. Useful for proxies or self-hosted deployments.                                                 |
-| `count`            | `10`                                  | Results requested per search (1–50).                                                                                                                              |
-| `overrideWebfetch` | `true`                                | Replace the built-in `webfetch` tool with strategy-based routing.                                                                                                 |
-| `fetchStrategy`    | `"auto"`                              | `"auto"`: deterministic gates plus per-domain learning pick the channel order. `"native-first"` / `"deepseek-first"`: fixed order with cross-fallback. |
-| `nativeOnlyDomains` | `[]`                                 | Hostnames or parent domains that always use the built-in fetch (e.g. `["intranet.local"]`).                                                             |
-| `deepseekOnlyDomains` | `[]`                              | Hostnames or parent domains that always prefer the DeepSeek Fetch API.                                                                                  |
-| `setDefault`       | `true`                                | Select `deepseek` as the default websearch provider **only when** no provider is configured and an API key is present. Never overrides an explicit choice.        |
+| Option                | Default                               | Description                                                                                                                                                |
+| --------------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apiKeyEnv`           | `"DEEPSEEK_API_KEY"`                  | Environment variable holding the API key. A literal key option is deliberately not offered so keys never end up in config files.                           |
+| `baseURL`             | `"https://api.deepseek.com/v1/tools"` | API base including any path prefix, without `/search` or `/fetch`. Useful for proxies or self-hosted deployments.                                          |
+| `count`               | `10`                                  | Results requested per search (1–50).                                                                                                                       |
+| `overrideWebfetch`    | `true`                                | Replace the built-in `webfetch` tool with strategy-based routing.                                                                                          |
+| `fetchStrategy`       | `"auto"`                              | `"auto"`: deterministic gates plus per-domain learning pick the channel order. `"native-first"` / `"deepseek-first"`: fixed order with cross-fallback.     |
+| `nativeOnlyDomains`   | `[]`                                  | Hostnames or parent domains that always use the built-in fetch (e.g. `["intranet.local"]`).                                                                |
+| `deepseekOnlyDomains` | `[]`                                  | Hostnames or parent domains that always prefer the DeepSeek Fetch API.                                                                                     |
+| `setDefault`          | `true`                                | Select `deepseek` as the default websearch provider **only when** no provider is configured and an API key is present. Never overrides an explicit choice. |
 
 ## How webfetch routing works
 
