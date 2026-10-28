@@ -52,8 +52,10 @@ Pass options with the object form in `opencode.jsonc`:
         "baseURL": "https://api.deepseek.com/v1/tools",
         "count": 10,
         "overrideWebfetch": true,
-        "fetchStrategy": "native-first",
-        "setDefault": true
+        "fetchStrategy": "auto",
+        "setDefault": true,
+        "nativeOnlyDomains": ["intranet.local"],
+        "deepseekOnlyDomains": ["protected-docs.example.com"]
       }
     }
   ]
@@ -66,34 +68,41 @@ Pass options with the object form in `opencode.jsonc`:
 | `baseURL`          | `"https://api.deepseek.com/v1/tools"` | API base including any path prefix, without `/search` or `/fetch`. Useful for proxies or self-hosted deployments.                                                 |
 | `count`            | `10`                                  | Results requested per search (1–50).                                                                                                                              |
 | `overrideWebfetch` | `true`                                | Replace the built-in `webfetch` tool with strategy-based routing.                                                                                                 |
-| `fetchStrategy`    | `"native-first"`                      | `"native-first"`: direct fetch first, DeepSeek rescues failures and bot-challenge/empty pages. `"deepseek-first"`: DeepSeek first, native fetch rescues failures. |
+| `fetchStrategy`    | `"auto"`                              | `"auto"`: deterministic gates plus per-domain learning pick the channel order. `"native-first"` / `"deepseek-first"`: fixed order with cross-fallback. |
+| `nativeOnlyDomains` | `[]`                                 | Hostnames or parent domains that always use the built-in fetch (e.g. `["intranet.local"]`).                                                             |
+| `deepseekOnlyDomains` | `[]`                              | Hostnames or parent domains that always prefer the DeepSeek Fetch API.                                                                                  |
 | `setDefault`       | `true`                                | Select `deepseek` as the default websearch provider **only when** no provider is configured and an API key is present. Never overrides an explicit choice.        |
 
 ## How webfetch routing works
 
 The override keeps the native input schema (`url`, `format`, `timeout`) and the `webfetch`
-permission flow. Two hard rules always apply: `format: "html"` and image URLs use the built-in
+permission flow. Hard rules always apply: `format: "html"` and image URLs use the built-in
 implementation (DeepSeek only returns markdown), and without an API key everything uses the
 built-in implementation — the native tool never breaks.
 
-For markdown/text requests the configured strategy decides:
+For markdown/text requests the configured strategy decides. The default **`auto`** strategy is a
+layered pipeline:
 
-**`native-first` (default)** — free direct fetching wins; DeepSeek is only called (and billed)
-when it is actually needed:
+1. **Deterministic gates**
+   - Intranet/loopback URLs (localhost, private IPs, single-label hosts, `.local`/`.internal`/…)
+     **always** use native fetching — they never leave the machine.
+   - Raw byte-oriented resources (`.json`/`.xml`/`.txt`/`.md`/…, `raw.githubusercontent.com`)
+     prefer native fidelity over DeepSeek's rendering.
+   - `nativeOnlyDomains` / `deepseekOnlyDomains` force a channel per domain.
+2. **Per-domain learning** — two consecutive native failures (hard errors or bot-challenge/empty
+   content) teach the plugin to go deepseek-first on that domain for 6 hours; a native success
+   resets the preference. A DeepSeek 429 pauses DeepSeek for 60 seconds on that domain.
+3. **Quality check with fallback** — native results that are empty or short bot-challenge pages
+   ("Just a moment…", "Checking your browser…") fall back to DeepSeek; when every channel fails,
+   the error reports all causes. Aborted sessions stop immediately.
 
-1. Try the built-in fetch. A good result is returned as-is, without any DeepSeek call.
-2. On hard failures (403, timeouts, network errors) **or poor content** (empty body, short
-   bot-challenge pages such as "Just a moment…" / "Checking your browser…"), fall back to the
-   DeepSeek Fetch API.
-3. If both fail, the error reports both causes.
+`native-first` and `deepseek-first` keep a fixed channel order with the same cross-fallback, and
+ignore learned preferences.
 
-**`deepseek-first`** — the previous behavior, plus a safety net:
-
-1. Try the DeepSeek Fetch API (page title prepended as a heading; `text` strips markdown).
-2. On DeepSeek errors (429, 5xx, network), fall back to the built-in fetch.
-3. If both fail, the error reports both causes.
-
-In both strategies, an aborted session stops immediately instead of trying the fallback.
+Every result carries routing metadata so you can see what happened:
+`provider` (`native` / `deepseek`), `route` (`auto-default`, `private-url`, `raw-content`,
+`domain-memory`, `deepseek-cooldown`, `native-only-domain`, …) and, when a fallback occurred,
+`fallback` with the first channel's error.
 
 Errors mirror DeepSeek's semantics: `401/403` produce credential guidance, `429` is surfaced as a
 rate limit (Search 100 QPS / Fetch 25 QPS per account), and Fetch API failures are reported as
