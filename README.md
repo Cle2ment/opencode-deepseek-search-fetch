@@ -117,7 +117,8 @@ GitHub Actions — no long-lived npm tokens, provenance generated automatically.
 1. Bump `version` in `package.json` and commit.
 2. Tag the release: `git tag v1.0.1 && git push origin master --tags`.
 3. The release workflow verifies the tag matches the package version, runs all checks, and
-   publishes to npm with provenance. No approval step.
+   publishes to npm. No approval step. (Provenance attestation is temporarily disabled due to a
+   sigstore transparency-log error; see the note in `release.yml`.)
 
 Optional hardening: after the first trusted publish succeeds, set the package's
 **Settings → Publishing access → "Require two-factor authentication and disallow tokens"** so only

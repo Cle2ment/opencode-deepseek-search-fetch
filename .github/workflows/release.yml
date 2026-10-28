@@ -40,9 +40,15 @@ jobs:
       # automatically, no long-lived token and no manual approval.
       # Trusted publisher config on npmjs.com: GitHub Actions ->
       # Cle2ment / opencode-deepseek-search-fetch / release.yml
-      # with "npm publish" allowed. Provenance is generated automatically.
+      # with "npm publish" allowed.
+      # Provenance attestation is disabled for now: sigstore tlog fails with
+      # 409 TLOG_CREATE_ENTRY_ERROR for this package (2026-10-28). OIDC auth is
+      # unaffected. Re-enable by removing NPM_CONFIG_PROVENANCE and adding
+      # --provenance back once the registry/sigstore issue is resolved.
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: npm publish --access public
+        env:
+          NPM_CONFIG_PROVENANCE: "false"
 
   smoke:
     # Optional real-API smoke test against DeepSeek (not the npm package);
