@@ -108,18 +108,16 @@ GitHub Actions — no long-lived npm tokens, provenance generated automatically.
    - Organization or user: `Cle2ment`
    - Repository: `opencode-deepseek-search-fetch`
    - Workflow filename: `release.yml`
-   - Allowed actions: **leave `npm publish` unchecked** (stage-only, the recommended default).
-     CI can then only *stage* releases; nothing goes public without your 2FA approval.
-3. Complete the first OIDC staging run **within 2 days** of creating the configuration, or it expires.
+   - Allowed actions: **check `npm publish`** so tagged releases go live automatically without
+     manual approval (leave it unchecked instead if you prefer 2FA-approved staged publishing).
+3. Complete the first OIDC publish **within 2 days** of creating the configuration, or it expires.
 
-**Cutting a release:**
+**Cutting a release (fully automatic):**
 
 1. Bump `version` in `package.json` and commit.
 2. Tag the release: `git tag v1.0.1 && git push origin master --tags`.
 3. The release workflow verifies the tag matches the package version, runs all checks, and
-   **stages** the release on npm (provenance is generated automatically).
-4. Approve the staged version with 2FA — on npmjs.com (package page → staged versions → review
-   and approve) or via `npm stage approve` locally. Only then does the version go live.
+   publishes to npm with provenance. No approval step.
 
 Optional hardening: after the first trusted publish succeeds, set the package's
 **Settings → Publishing access → "Require two-factor authentication and disallow tokens"** so only
