@@ -20,7 +20,9 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
+          # No registry-url: setup-node would write an empty _authToken line
+          # into .npmrc, which shadows OIDC trusted publishing and causes
+          # anonymous PUTs (404). The default registry is already npmjs.
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -55,7 +57,18 @@ jobs:
       # 409 TLOG_CREATE_ENTRY_ERROR for this package (2026-10-28). OIDC auth is
       # unaffected. Re-enable by removing NPM_CONFIG_PROVENANCE and adding
       # --provenance back once the registry/sigstore issue is resolved.
+      - name: Check if version is already published
+        id: published
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "opencode-deepseek-search-fetch@$VERSION" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to npm
+        if: steps.published.outputs.exists == 'false'
         run: npm publish --access public
         env:
           NPM_CONFIG_PROVENANCE: "false"
