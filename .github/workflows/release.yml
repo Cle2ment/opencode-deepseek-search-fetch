@@ -36,15 +36,17 @@ jobs:
             exit 1
           fi
 
-      # npm trusted publishing (OIDC): no long-lived token required.
-      # Configure the trusted publisher on the package's npmjs.com settings:
-      # GitHub Actions -> Cle2ment / opencode-deepseek-search-fetch / release.yml
-      # with "npm publish" allowed. Provenance is generated automatically.
-      - name: Publish to npm
-        run: npm publish --provenance --access public
+      # npm trusted publishing (OIDC) with staged publishing: CI can only stage
+      # a release; a maintainer approves it with 2FA to make it public.
+      # Trusted publisher config on npmjs.com: GitHub Actions ->
+      # Cle2ment / opencode-deepseek-search-fetch / release.yml
+      # (stage-only, i.e. leave "npm publish" unchecked).
+      - name: Stage release on npm
+        run: npm stage publish --access public
 
   smoke:
-    # Optional real-API smoke test; runs only when DEEPSEEK_API_KEY is configured.
+    # Optional real-API smoke test against DeepSeek (not the npm package);
+    # runs after staging, only when DEEPSEEK_API_KEY is configured.
     needs: publish
     if: ${{ vars.DEEPSEEK_SMOKE_TEST == 'true' }}
     runs-on: ubuntu-latest
