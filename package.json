@@ -23,6 +23,14 @@
     "webfetch"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Cle2ment/opencode-deepseek-search-fetch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Cle2ment/opencode-deepseek-search-fetch/issues"
+  },
+  "homepage": "https://github.com/Cle2ment/opencode-deepseek-search-fetch#readme",
   "dependencies": {
     "@opencode/plugin": "^2.2.0"
   },
