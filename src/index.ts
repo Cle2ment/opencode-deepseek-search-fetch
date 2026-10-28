@@ -7,6 +7,7 @@ import {
   DEFAULT_WEBFETCH_INPUT_SCHEMA,
   type OriginalWebfetch,
 } from "./fetch"
+import { createRouteMemory } from "./routing"
 import { createSearchProvider } from "./search"
 
 interface ToolExecuteContext {
@@ -48,10 +49,15 @@ export default Plugin.define({
 
     await ctx.tool.transform((editor) => {
       const original = editor.get("webfetch")
+      const memory = createRouteMemory({
+        get: (key) => ctx.storage.get(key),
+        set: (key, value) => ctx.storage.set(key, value as never),
+      })
       const execute = createWebfetchExecutor({
         config,
         client,
         original: original ? (original as unknown as OriginalWebfetch) : undefined,
+        memory,
         assertPermission: async (input, rawContext) => {
           const context = rawContext as ToolExecuteContext
           await ctx.permission.assert({

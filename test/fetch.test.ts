@@ -4,6 +4,7 @@ import type { DeepSeekClient, DeepSeekFetchResult } from "../src/deepseek"
 import { createDeepSeekClient, MissingApiKeyError } from "../src/deepseek"
 import type { WebfetchInput } from "../src/fetch"
 import { createWebfetchExecutor, isProbablyImageUrl, stripMarkdown } from "../src/fetch"
+import { createRouteMemory } from "../src/routing"
 
 const config = resolveConfig({})
 const signal = new AbortController().signal
@@ -87,6 +88,7 @@ describe("createWebfetchExecutor", () => {
       url: "https://a.com",
       format: "markdown",
       provider: "deepseek",
+      route: "no-native",
     })
     expect(permissionCalls).toHaveLength(1)
     expect(permissionCalls[0]?.url).toBe("https://a.com")
@@ -291,7 +293,9 @@ describe("native-first strategy", () => {
       assertPermission: noopPermission,
     })
     const result = await execute({ url: "https://a.com" }, { signal })
-    expect(result).toBe(nativeResult as never)
+    expect(resultTextOf(result)).toBe("Image fetched successfully")
+    expect((result as { attachments?: unknown }).attachments).toEqual(nativeResult.attachments)
+    expect(result.metadata).toMatchObject({ provider: "native" })
   })
 
   test("both failures produce a combined error", async () => {
@@ -362,3 +366,125 @@ function resultTextOf(result: unknown): string {
   if (typeof record.output === "string") return record.output
   return ""
 }
+
+describe("auto strategy with gates and memory", () => {
+  test("private urls always use native and never leak to DeepSeek", async () => {
+    let deepseekCalled = 0
+    const client: DeepSeekClient = {
+      search: async () => [],
+      fetchPage: async () => {
+        deepseekCalled++
+        return { title: "", content: "" }
+      },
+    }
+    const execute = createWebfetchExecutor({
+      config,
+      client,
+      original: { execute: async () => ({ content: "intranet page", metadata: {} }) },
+      assertPermission: noopPermission,
+      memory: createRouteMemory(),
+    })
+    const result = await execute({ url: "http://192.168.1.10/docs" }, { signal })
+    expect(result.metadata).toMatchObject({ provider: "native", route: "private-url" })
+    expect(deepseekCalled).toBe(0)
+  })
+
+  test("raw content urls prefer native fidelity", async () => {
+    const execute = createWebfetchExecutor({
+      config,
+      client: mockClient(),
+      original: { execute: async () => ({ content: '{"ok":true}', metadata: {} }) },
+      assertPermission: noopPermission,
+      memory: createRouteMemory(),
+    })
+    const result = await execute({ url: "https://a.com/data.json" }, { signal })
+    expect(result.metadata).toMatchObject({ provider: "native", route: "raw-content" })
+  })
+
+  test("two native failures teach auto to go deepseek-first on the domain", async () => {
+    let nativeCalls = 0
+    const memory = createRouteMemory()
+    const original = {
+      execute: async () => {
+        nativeCalls++
+        throw new Error("native blocked")
+      },
+    }
+    const execute = createWebfetchExecutor({
+      config,
+      client: mockClient(),
+      original,
+      assertPermission: noopPermission,
+      memory,
+    })
+    const first = await execute({ url: "https://a.com/1" }, { signal })
+    expect(first.metadata).toMatchObject({ provider: "deepseek", route: "auto-default" })
+    expect(first.metadata?.fallback).toContain("native webfetch")
+    await execute({ url: "https://a.com/2" }, { signal })
+    expect(nativeCalls).toBe(2)
+
+    const third = await execute({ url: "https://a.com/3" }, { signal })
+    expect(third.metadata).toMatchObject({ provider: "deepseek", route: "domain-memory" })
+    expect(nativeCalls).toBe(2) // native skipped entirely on the learned domain
+  })
+
+  test("deepseek 429 arms a cooldown that forces native", async () => {
+    let deepseekCalls = 0
+    const client: DeepSeekClient = {
+      search: async () => [],
+      fetchPage: async () => {
+        deepseekCalls++
+        throw Object.assign(new Error("rate limited"), { status: 429 })
+      },
+    }
+    const memory = createRouteMemory()
+    const execute = createWebfetchExecutor({
+      config,
+      client,
+      original: {
+        execute: async () => {
+          throw new Error("native down")
+        },
+      },
+      assertPermission: noopPermission,
+      memory,
+    })
+    await expect(execute({ url: "https://a.com" }, { signal })).rejects.toThrow("rate limited")
+    expect(deepseekCalls).toBe(1)
+
+    const healthy = createWebfetchExecutor({
+      config,
+      client,
+      original: { execute: async () => ({ content: "native ok", metadata: {} }) },
+      assertPermission: noopPermission,
+      memory,
+    })
+    const result = await healthy({ url: "https://a.com" }, { signal })
+    expect(result.metadata).toMatchObject({ provider: "native", route: "deepseek-cooldown" })
+    expect(deepseekCalls).toBe(1)
+  })
+
+  test("native-only domains never fall back to DeepSeek", async () => {
+    let deepseekCalled = 0
+    const client: DeepSeekClient = {
+      search: async () => [],
+      fetchPage: async () => {
+        deepseekCalled++
+        return { title: "", content: "" }
+      },
+    }
+    const execute = createWebfetchExecutor({
+      config: resolveConfig({ nativeOnlyDomains: ["a.com"] }),
+      client,
+      original: {
+        execute: async () => {
+          throw new Error("native down")
+        },
+      },
+      assertPermission: noopPermission,
+      memory: createRouteMemory(),
+    })
+    await expect(execute({ url: "https://a.com" }, { signal })).rejects.toThrow("native down")
+    expect(deepseekCalled).toBe(0)
+  })
+})

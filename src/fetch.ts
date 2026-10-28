@@ -1,6 +1,8 @@
-import type { FetchStrategy, PluginConfig } from "./config"
+import type { PluginConfig } from "./config"
 import { resolveApiKey } from "./config"
 import type { DeepSeekClient } from "./deepseek"
+import type { Channel, DomainEntry, Outcome, RouteMemory } from "./routing"
+import { hostOf, isPrivateUrl, isRawContentUrl, planRoute } from "./routing"
 
 export type WebfetchFormat = "text" | "markdown" | "html"
 
@@ -29,6 +31,8 @@ export interface WebfetchDeps {
   /** Asserts the webfetch permission for DeepSeek-served requests (original handles its own). */
   readonly assertPermission: (input: WebfetchInput, context: unknown) => Promise<void>
   readonly env?: Record<string, string | undefined>
+  /** Per-domain outcome memory used by the auto strategy (optional, best-effort). */
+  readonly memory?: RouteMemory | undefined
 }
 
 export const DEFAULT_WEBFETCH_DESCRIPTION =
@@ -125,12 +129,39 @@ function hasAttachments(result: unknown): boolean {
   return Array.isArray(attachments) && attachments.length > 0
 }
 
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function label(channel: Channel): string {
+  return channel === "native" ? "native webfetch" : "DeepSeek"
+}
+
 function combinedError(first: [string, unknown], second: [string, unknown]): Error {
-  const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
   return new Error(
-    `webfetch failed via ${first[0]}: ${message(first[1])}; ` +
-      `fallback via ${second[0]} also failed: ${message(second[1])}`,
+    `webfetch failed via ${first[0]}: ${messageOf(first[1])}; ` +
+      `fallback via ${second[0]} also failed: ${messageOf(second[1])}`,
   )
+}
+
+/** Attach routing observability: which channel served, why, and any fallback cause. */
+function annotate(
+  result: WebfetchResult,
+  channel: Channel,
+  route: string,
+  failure?: { channel: Channel; error: unknown },
+): WebfetchResult {
+  return {
+    ...result,
+    metadata: {
+      ...(result.metadata ?? {}),
+      provider: channel,
+      route,
+      ...(failure
+        ? { fallback: `${label(failure.channel)}: ${messageOf(failure.error).slice(0, 160)}` }
+        : {}),
+    },
+  }
 }
 
 export function createWebfetchExecutor(deps: WebfetchDeps) {
@@ -170,6 +201,15 @@ export function createWebfetchExecutor(deps: WebfetchDeps) {
     }
   }
 
+  async function record(host: string, channel: Channel, outcome: Outcome): Promise<void> {
+    if (!deps.memory || !host) return
+    try {
+      await deps.memory.record(host, channel, outcome)
+    } catch {
+      // memory is best-effort and must never break fetching
+    }
+  }
+
   return async function execute(
     input: WebfetchInput,
     context: { signal: AbortSignal },
@@ -194,41 +234,75 @@ export function createWebfetchExecutor(deps: WebfetchDeps) {
       throw new Error("URL must start with http:// or https://")
     }
 
-    const strategy: FetchStrategy = config.fetchStrategy
+    const host = hostOf(input.url)
+    const privateUrl = isPrivateUrl(input.url)
+    const rawContent = isRawContentUrl(input.url)
 
-    if (strategy === "deepseek-first") {
+    // Gate 1: intranet URLs never leave the machine. Gate 2: raw byte-oriented
+    // resources favor native fidelity. Everything else goes through the planner
+    // (strategy + per-domain memory in auto mode).
+    let entry: DomainEntry | undefined
+    if (!privateUrl && !rawContent && deps.memory && host) {
       try {
-        return await executeDeepSeek(input, format, context)
-      } catch (deepseekError) {
-        if (context.signal.aborted || !original) throw deepseekError
-        try {
-          return await executeNative(input, context)
-        } catch (nativeError) {
-          throw combinedError(["DeepSeek", deepseekError], ["native webfetch", nativeError])
-        }
+        entry = await deps.memory.get(host)
+      } catch {
+        entry = undefined
       }
     }
+    const plan = privateUrl
+      ? { order: ["native"] as const, reason: "private-url" }
+      : planRoute({
+          strategy: rawContent ? "native-first" : config.fetchStrategy,
+          hasOriginal: Boolean(original),
+          hasKey,
+          host,
+          nativeOnlyDomains: config.nativeOnlyDomains,
+          deepseekOnlyDomains: config.deepseekOnlyDomains,
+          entry,
+          now: Date.now(),
+        })
+    const route = privateUrl ? "private-url" : rawContent ? "raw-content" : plan.reason
 
-    // native-first: free direct fetching wins; DeepSeek rescues failures and
-    // bot-challenge/empty pages. Without the original there is nothing to try
-    // first, so go straight to DeepSeek.
-    if (!original) return executeDeepSeek(input, format, context)
+    let failure: { channel: Channel; error: unknown } | undefined
+    for (const [index, channel] of plan.order.entries()) {
+      if (context.signal.aborted) throw failure?.error ?? new Error("webfetch aborted")
+      const hasFallback = index + 1 < plan.order.length
+      try {
+        const result =
+          channel === "native"
+            ? await executeNative(input, context)
+            : await executeDeepSeek(input, format, context)
 
-    let nativeFailure: unknown
-    try {
-      const result = await executeNative(input, context)
-      if (hasAttachments(result)) return result
-      if (!isLowQualityContent(resultText(result))) return result
-      nativeFailure = new Error("native fetch returned empty or bot-challenge content")
-    } catch (error) {
-      nativeFailure = error
+        // A native result that is technically a success but useless (empty or a
+        // bot-challenge page) counts as a quality failure when a fallback exists.
+        if (
+          channel === "native" &&
+          hasFallback &&
+          !hasAttachments(result) &&
+          isLowQualityContent(resultText(result))
+        ) {
+          await record(host, "native", "quality-fail")
+          failure = {
+            channel,
+            error: new Error("native fetch returned empty or bot-challenge content"),
+          }
+          continue
+        }
+
+        await record(host, channel, "success")
+        return annotate(result, channel, route, failure)
+      } catch (error) {
+        const status = (error as { status?: number }).status
+        await record(host, channel, status === 429 ? "rate-limited" : "error")
+        if (context.signal.aborted) throw error
+        if (!hasFallback) {
+          throw failure
+            ? combinedError([label(failure.channel), failure.error], [label(channel), error])
+            : error
+        }
+        failure = { channel, error }
+      }
     }
-
-    if (context.signal.aborted) throw nativeFailure
-    try {
-      return await executeDeepSeek(input, format, context)
-    } catch (deepseekError) {
-      throw combinedError(["native webfetch", nativeFailure], ["DeepSeek", deepseekError])
-    }
+    throw failure?.error ?? new Error("webfetch failed")
   }
 }
