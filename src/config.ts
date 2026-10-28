@@ -9,7 +9,15 @@ export interface PluginConfig {
   readonly overrideWebfetch: boolean
   /** Select deepseek as the default websearch provider when nothing else is configured. */
   readonly setDefault: boolean
+  /**
+   * Routing strategy for webfetch:
+   * - native-first: try the built-in fetch, fall back to DeepSeek on failure or poor content.
+   * - deepseek-first: try DeepSeek, fall back to the built-in fetch on failure.
+   */
+  readonly fetchStrategy: FetchStrategy
 }
+
+export type FetchStrategy = "native-first" | "deepseek-first"
 
 export const DEFAULT_BASE_URL = "https://api.deepseek.com/v1/tools"
 export const DEFAULT_API_KEY_ENV = "DEEPSEEK_API_KEY"
@@ -41,12 +49,19 @@ export function resolveConfig(options: Record<string, unknown>): PluginConfig {
     }
   }
 
+  const rawStrategy = options.fetchStrategy
+  const fetchStrategy: FetchStrategy =
+    rawStrategy === "deepseek-first" || rawStrategy === "native-first"
+      ? rawStrategy
+      : "native-first"
+
   return {
     apiKeyEnv: stringOption(options, "apiKeyEnv", DEFAULT_API_KEY_ENV),
     baseURL: /^https?:\/\//.test(baseURL) ? baseURL : DEFAULT_BASE_URL,
     count,
     overrideWebfetch: booleanOption(options, "overrideWebfetch", true),
     setDefault: booleanOption(options, "setDefault", true),
+    fetchStrategy,
   }
 }
 

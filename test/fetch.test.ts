@@ -211,3 +211,154 @@ describe("createWebfetchExecutor", () => {
     )
   })
 })
+
+describe("native-first strategy", () => {
+  function nativeReturning(result: unknown) {
+    return { execute: async () => result as never }
+  }
+
+  test("good native result short-circuits without DeepSeek or permission assert", async () => {
+    let deepseekCalled = 0
+    const client: DeepSeekClient = {
+      search: async () => [],
+      fetchPage: async () => {
+        deepseekCalled++
+        return { title: "", content: "" }
+      },
+    }
+    const execute = createWebfetchExecutor({
+      config,
+      client,
+      original: nativeReturning({ output: "full page content, long enough to be useful" }),
+      assertPermission: async () => {
+        throw new Error("must not assert on native path")
+      },
+    })
+    const result = await execute({ url: "https://a.com" }, { signal })
+    expect(resultTextOf(result)).toBe("full page content, long enough to be useful")
+    expect(deepseekCalled).toBe(0)
+  })
+
+  test("native hard failure falls back to DeepSeek", async () => {
+    const execute = createWebfetchExecutor({
+      config,
+      client: mockClient(),
+      original: {
+        execute: async () => {
+          throw new Error("403 Cloudflare")
+        },
+      },
+      assertPermission: noopPermission,
+    })
+    const result = await execute({ url: "https://a.com" }, { signal })
+    expect(result.metadata?.provider).toBe("deepseek")
+    expect(result.content).toContain("Example Page")
+  })
+
+  test("bot-challenge page falls back to DeepSeek", async () => {
+    const execute = createWebfetchExecutor({
+      config,
+      client: mockClient(),
+      original: nativeReturning({
+        output: "Just a moment... Checking your browser before accessing the site.",
+      }),
+      assertPermission: noopPermission,
+    })
+    const result = await execute({ url: "https://a.com" }, { signal })
+    expect(result.metadata?.provider).toBe("deepseek")
+  })
+
+  test("empty native content falls back to DeepSeek", async () => {
+    const execute = createWebfetchExecutor({
+      config,
+      client: mockClient(),
+      original: nativeReturning({ output: "   " }),
+      assertPermission: noopPermission,
+    })
+    const result = await execute({ url: "https://a.com" }, { signal })
+    expect(result.metadata?.provider).toBe("deepseek")
+  })
+
+  test("native attachments bypass the quality check", async () => {
+    const nativeResult = {
+      output: "Image fetched successfully",
+      attachments: [{ type: "file", mime: "image/png" }],
+    }
+    const execute = createWebfetchExecutor({
+      config,
+      client: mockClient(),
+      original: nativeReturning(nativeResult),
+      assertPermission: noopPermission,
+    })
+    const result = await execute({ url: "https://a.com" }, { signal })
+    expect(result).toBe(nativeResult as never)
+  })
+
+  test("both failures produce a combined error", async () => {
+    const client: DeepSeekClient = {
+      search: async () => [],
+      fetchPage: async () => {
+        throw new Error("deepseek 429")
+      },
+    }
+    const execute = createWebfetchExecutor({
+      config,
+      client,
+      original: {
+        execute: async () => {
+          throw new Error("native timeout")
+        },
+      },
+      assertPermission: noopPermission,
+    })
+    const error = await execute({ url: "https://a.com" }, { signal }).catch((e: unknown) => e)
+    expect((error as Error).message).toContain("native timeout")
+    expect((error as Error).message).toContain("deepseek 429")
+  })
+})
+
+describe("deepseek-first strategy", () => {
+  const deepseekFirst = resolveConfig({ fetchStrategy: "deepseek-first" })
+
+  test("DeepSeek failure falls back to native", async () => {
+    const client: DeepSeekClient = {
+      search: async () => [],
+      fetchPage: async () => {
+        throw new Error("deepseek 429")
+      },
+    }
+    const execute = createWebfetchExecutor({
+      config: deepseekFirst,
+      client,
+      original: { execute: async () => ({ content: "native-rescue" }) },
+      assertPermission: noopPermission,
+    })
+    const result = await execute({ url: "https://a.com" }, { signal })
+    expect(result.content).toBe("native-rescue")
+  })
+
+  test("DeepSeek success does not touch native", async () => {
+    let nativeCalled = 0
+    const execute = createWebfetchExecutor({
+      config: deepseekFirst,
+      client: mockClient(),
+      original: {
+        execute: async () => {
+          nativeCalled++
+          return { content: "native" }
+        },
+      },
+      assertPermission: noopPermission,
+    })
+    const result = await execute({ url: "https://a.com" }, { signal })
+    expect(result.metadata?.provider).toBe("deepseek")
+    expect(nativeCalled).toBe(0)
+  })
+})
+
+function resultTextOf(result: unknown): string {
+  const record = result as { content?: unknown; output?: unknown }
+  if (typeof record.content === "string") return record.content
+  if (typeof record.output === "string") return record.output
+  return ""
+}

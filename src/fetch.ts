@@ -1,4 +1,4 @@
-import type { PluginConfig } from "./config"
+import type { FetchStrategy, PluginConfig } from "./config"
 import { resolveApiKey } from "./config"
 import type { DeepSeekClient } from "./deepseek"
 
@@ -33,7 +33,8 @@ export interface WebfetchDeps {
 
 export const DEFAULT_WEBFETCH_DESCRIPTION =
   "Fetches content from a specified URL and returns it in the requested format. " +
-  "Uses the DeepSeek Fetch API for markdown and text, with automatic fallback to direct fetching."
+  "Uses direct fetching or the DeepSeek Fetch API depending on the configured strategy, " +
+  "with automatic fallback between them."
 
 export const DEFAULT_WEBFETCH_INPUT_SCHEMA = {
   type: "object",
@@ -94,37 +95,61 @@ export function stripMarkdown(markdown: string): string {
 const MAX_TIMEOUT_MS = 120_000
 const DEFAULT_TIMEOUT_S = 30
 
+/** Bot-challenge markers: native fetch "succeeded" but returned a challenge page. */
+const CHALLENGE_PATTERNS = [
+  /just a moment/i,
+  /checking your browser/i,
+  /verify you are human/i,
+  /attention required/i,
+  /cf-challenge/i,
+  /captcha/i,
+]
+
+/** Empty responses and short bot-challenge pages count as poor native results. */
+export function isLowQualityContent(text: string): boolean {
+  const trimmed = text.trim()
+  if (trimmed.length === 0) return true
+  return trimmed.length < 2000 && CHALLENGE_PATTERNS.some((pattern) => pattern.test(trimmed))
+}
+
+/** Native tool results carry text in `output`, plugin results in `content`. */
+function resultText(result: unknown): string {
+  const record = result as { content?: unknown; output?: unknown }
+  if (typeof record.content === "string") return record.content
+  if (typeof record.output === "string") return record.output
+  return ""
+}
+
+function hasAttachments(result: unknown): boolean {
+  const attachments = (result as { attachments?: unknown }).attachments
+  return Array.isArray(attachments) && attachments.length > 0
+}
+
+function combinedError(first: [string, unknown], second: [string, unknown]): Error {
+  const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
+  return new Error(
+    `webfetch failed via ${first[0]}: ${message(first[1])}; ` +
+      `fallback via ${second[0]} also failed: ${message(second[1])}`,
+  )
+}
+
 export function createWebfetchExecutor(deps: WebfetchDeps) {
   const { config, client, original, assertPermission } = deps
   const env = deps.env ?? process.env
 
-  return async function execute(
+  async function executeNative(input: WebfetchInput, context: unknown): Promise<WebfetchResult> {
+    if (!original) {
+      throw new Error("The built-in webfetch tool is not available to handle this request.")
+    }
+    return original.execute(input, context)
+  }
+
+  async function executeDeepSeek(
     input: WebfetchInput,
+    format: WebfetchFormat,
     context: { signal: AbortSignal },
   ): Promise<WebfetchResult> {
-    const format = input.format ?? "markdown"
-    const hasKey = resolveApiKey(config, env) !== undefined
-
-    // Smart fallback: anything DeepSeek cannot serve goes back to the built-in
-    // implementation so overriding never breaks the native tool.
-    const canUseDeepSeek = hasKey && format !== "html" && !isProbablyImageUrl(input.url)
-    if (!canUseDeepSeek && original) {
-      return original.execute(input, context)
-    }
-
-    if (!input.url.startsWith("http://") && !input.url.startsWith("https://")) {
-      throw new Error("URL must start with http:// or https://")
-    }
-
-    if (format === "html") {
-      throw new Error(
-        'The DeepSeek Fetch API only returns markdown; format "html" is unavailable because ' +
-          "the built-in webfetch tool is not registered to fall back to.",
-      )
-    }
-
     await assertPermission(input, context)
-
     const timeoutMs = Math.min(
       Math.max(input.timeout ?? DEFAULT_TIMEOUT_S, 1) * 1000,
       MAX_TIMEOUT_MS,
@@ -142,6 +167,68 @@ export function createWebfetchExecutor(deps: WebfetchDeps) {
       content,
       ...(page.title ? { title: page.title } : {}),
       metadata: { url: input.url, format, provider: "deepseek" },
+    }
+  }
+
+  return async function execute(
+    input: WebfetchInput,
+    context: { signal: AbortSignal },
+  ): Promise<WebfetchResult> {
+    const format = input.format ?? "markdown"
+    const hasKey = resolveApiKey(config, env) !== undefined
+
+    // Hard routing: html and image attachments are native-only capabilities;
+    // a missing key delegates to the original when it exists. Without the
+    // original we fall through so the caller gets actionable errors
+    // (MissingApiKeyError) instead of a dead end.
+    if (format === "html") {
+      if (original) return executeNative(input, context)
+      throw new Error(
+        'format "html" is only supported by the built-in webfetch tool, which is not registered.',
+      )
+    }
+    if (isProbablyImageUrl(input.url) && original) return executeNative(input, context)
+    if (!hasKey && original) return executeNative(input, context)
+
+    if (!input.url.startsWith("http://") && !input.url.startsWith("https://")) {
+      throw new Error("URL must start with http:// or https://")
+    }
+
+    const strategy: FetchStrategy = config.fetchStrategy
+
+    if (strategy === "deepseek-first") {
+      try {
+        return await executeDeepSeek(input, format, context)
+      } catch (deepseekError) {
+        if (context.signal.aborted || !original) throw deepseekError
+        try {
+          return await executeNative(input, context)
+        } catch (nativeError) {
+          throw combinedError(["DeepSeek", deepseekError], ["native webfetch", nativeError])
+        }
+      }
+    }
+
+    // native-first: free direct fetching wins; DeepSeek rescues failures and
+    // bot-challenge/empty pages. Without the original there is nothing to try
+    // first, so go straight to DeepSeek.
+    if (!original) return executeDeepSeek(input, format, context)
+
+    let nativeFailure: unknown
+    try {
+      const result = await executeNative(input, context)
+      if (hasAttachments(result)) return result
+      if (!isLowQualityContent(resultText(result))) return result
+      nativeFailure = new Error("native fetch returned empty or bot-challenge content")
+    } catch (error) {
+      nativeFailure = error
+    }
+
+    if (context.signal.aborted) throw nativeFailure
+    try {
+      return await executeDeepSeek(input, format, context)
+    } catch (deepseekError) {
+      throw combinedError(["native webfetch", nativeFailure], ["DeepSeek", deepseekError])
     }
   }
 }

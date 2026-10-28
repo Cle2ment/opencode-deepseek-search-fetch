@@ -10,6 +10,7 @@ describe("resolveConfig", () => {
       count: 10,
       overrideWebfetch: true,
       setDefault: true,
+      fetchStrategy: "native-first",
     })
   })
 
@@ -46,6 +47,14 @@ describe("resolveConfig", () => {
     const config = resolveConfig({ overrideWebfetch: "yes", setDefault: 1 })
     expect(config.overrideWebfetch).toBe(true)
     expect(config.setDefault).toBe(true)
+  })
+
+  test("fetchStrategy accepts known values and rejects others", () => {
+    expect(resolveConfig({}).fetchStrategy).toBe("native-first")
+    expect(resolveConfig({ fetchStrategy: "deepseek-first" }).fetchStrategy).toBe("deepseek-first")
+    expect(resolveConfig({ fetchStrategy: "native-first" }).fetchStrategy).toBe("native-first")
+    expect(resolveConfig({ fetchStrategy: "auto" }).fetchStrategy).toBe("native-first")
+    expect(resolveConfig({ fetchStrategy: 42 }).fetchStrategy).toBe("native-first")
   })
 })
 

@@ -52,6 +52,7 @@ Pass options with the object form in `opencode.jsonc`:
         "baseURL": "https://api.deepseek.com/v1/tools",
         "count": 10,
         "overrideWebfetch": true,
+        "fetchStrategy": "native-first",
         "setDefault": true
       }
     }
@@ -59,30 +60,45 @@ Pass options with the object form in `opencode.jsonc`:
 }
 ```
 
-| Option             | Default                               | Description                                                                                                                                                |
-| ------------------ | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apiKeyEnv`        | `"DEEPSEEK_API_KEY"`                  | Environment variable holding the API key. A literal key option is deliberately not offered so keys never end up in config files.                           |
-| `baseURL`          | `"https://api.deepseek.com/v1/tools"` | API base including any path prefix, without `/search` or `/fetch`. Useful for proxies or self-hosted deployments.                                          |
-| `count`            | `10`                                  | Results requested per search (1–50).                                                                                                                       |
-| `overrideWebfetch` | `true`                                | Replace the built-in `webfetch` tool with the DeepSeek Fetch API.                                                                                          |
-| `setDefault`       | `true`                                | Select `deepseek` as the default websearch provider **only when** no provider is configured and an API key is present. Never overrides an explicit choice. |
+| Option             | Default                               | Description                                                                                                                                                       |
+| ------------------ | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apiKeyEnv`        | `"DEEPSEEK_API_KEY"`                  | Environment variable holding the API key. A literal key option is deliberately not offered so keys never end up in config files.                                  |
+| `baseURL`          | `"https://api.deepseek.com/v1/tools"` | API base including any path prefix, without `/search` or `/fetch`. Useful for proxies or self-hosted deployments.                                                 |
+| `count`            | `10`                                  | Results requested per search (1–50).                                                                                                                              |
+| `overrideWebfetch` | `true`                                | Replace the built-in `webfetch` tool with strategy-based routing.                                                                                                 |
+| `fetchStrategy`    | `"native-first"`                      | `"native-first"`: direct fetch first, DeepSeek rescues failures and bot-challenge/empty pages. `"deepseek-first"`: DeepSeek first, native fetch rescues failures. |
+| `setDefault`       | `true`                                | Select `deepseek` as the default websearch provider **only when** no provider is configured and an API key is present. Never overrides an explicit choice.        |
 
-## How webfetch fallback works
+## How webfetch routing works
 
 The override keeps the native input schema (`url`, `format`, `timeout`) and the `webfetch`
-permission flow. Requests are routed as follows:
+permission flow. Two hard rules always apply: `format: "html"` and image URLs use the built-in
+implementation (DeepSeek only returns markdown), and without an API key everything uses the
+built-in implementation — the native tool never breaks.
 
-| Request                        | Served by                                              |
-| ------------------------------ | ------------------------------------------------------ |
-| `format: "markdown"` (default) | DeepSeek Fetch API (page title prepended as a heading) |
-| `format: "text"`               | DeepSeek Fetch API, markdown stripped to plain text    |
-| `format: "html"`               | Built-in webfetch (DeepSeek only returns markdown)     |
-| Image URLs (`.png`, `.jpg`, …) | Built-in webfetch (native image attachment handling)   |
-| No API key configured          | Built-in webfetch — the native tool never breaks       |
+For markdown/text requests the configured strategy decides:
+
+**`native-first` (default)** — free direct fetching wins; DeepSeek is only called (and billed)
+when it is actually needed:
+
+1. Try the built-in fetch. A good result is returned as-is, without any DeepSeek call.
+2. On hard failures (403, timeouts, network errors) **or poor content** (empty body, short
+   bot-challenge pages such as "Just a moment…" / "Checking your browser…"), fall back to the
+   DeepSeek Fetch API.
+3. If both fail, the error reports both causes.
+
+**`deepseek-first`** — the previous behavior, plus a safety net:
+
+1. Try the DeepSeek Fetch API (page title prepended as a heading; `text` strips markdown).
+2. On DeepSeek errors (429, 5xx, network), fall back to the built-in fetch.
+3. If both fail, the error reports both causes.
+
+In both strategies, an aborted session stops immediately instead of trying the fallback.
 
 Errors mirror DeepSeek's semantics: `401/403` produce credential guidance, `429` is surfaced as a
 rate limit (Search 100 QPS / Fetch 25 QPS per account), and Fetch API failures are reported as
-retrieval failures, not target-page statuses. The plugin does not retry on its own.
+retrieval failures, not target-page statuses. The plugin never retries the same API request on its
+own; the only fallback is the strategy-based switch between native fetch and DeepSeek.
 
 ## Billing note
 
