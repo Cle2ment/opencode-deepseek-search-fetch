@@ -1,4 +1,4 @@
-# deepseek-search-fetch
+# opencode-deepseek-search-fetch
 
 Use the [DeepSeek Search & Fetch APIs](https://api-docs.deepseek.com/guides/search) in
 [OpenCode](https://opencode.ai) V2, wired the same way as OpenCode's built-in web tooling:
@@ -10,12 +10,15 @@ Use the [DeepSeek Search & Fetch APIs](https://api-docs.deepseek.com/guides/sear
 
 No extra tools for the model to learn, no configuration required beyond your API key.
 
+The npm package is named `opencode-deepseek-search-fetch`; the plugin id shown in OpenCode's
+plugin menu is `deepseek-search-fetch`.
+
 ## Install
 
 ```jsonc
 // opencode.jsonc
 {
-  "plugins": ["deepseek-search-fetch@latest"]
+  "plugins": ["opencode-deepseek-search-fetch@latest"]
 }
 ```
 
@@ -43,7 +46,7 @@ Pass options with the object form in `opencode.jsonc`:
 {
   "plugins": [
     {
-      "package": "deepseek-search-fetch@latest",
+      "package": "opencode-deepseek-search-fetch@latest",
       "options": {
         "apiKeyEnv": "DEEPSEEK_API_KEY",
         "baseURL": "https://api.deepseek.com/v1/tools",
